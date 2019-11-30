@@ -26,6 +26,11 @@ class Author(db.Model):
 
   books = db.relationship("Book", back_populates="author", lazy="dynamic")
 
+book_tags = db.Table('book_tags',
+  db.Column('tag_id', db.Integer, db.ForeignKey('tags.id'), primary_key=True),
+  db.Column('book_id', db.Integer, db.ForeignKey('books.id'), primary_key=True)
+)
+
 class Book(db.Model):
   __tablename__ = 'books'
 
@@ -34,6 +39,18 @@ class Book(db.Model):
   author_id = db.Column(db.Integer, db.ForeignKey("authors.id"))
 
   author = db.relationship("Author", back_populates="books")
+  tags = db.relationship("Tag", secondary=book_tags, 
+            back_populates="books", lazy="subquery", 
+            cascade="all,delete")
+
+class Tag(db.Model):
+  __tablename__ = 'tags'
+
+  id = db.Column(db.Integer, primary_key=True)
+  tag = db.Column(db.String(50), unique=True)
+
+  books = db.relationship("Book", secondary=book_tags, 
+              back_populates="tags", cascade="delete")
 
 class UserSchema(ma.Schema):
   class Meta:
@@ -52,31 +69,18 @@ class AuthorSchema(ma.ModelSchema):
     'collection': ma.URLFor('author'),
   })
 
+class TagSchema(ma.TableSchema):
+  class Meta:
+    table = Tag.__table__
+    fields = ['tag']
 
 # Defining via model or table schema
-class BookSchema(ma.TableSchema):
-  class Meta:
-    table = Book.__table__
-    fields = ('id', 'title', 'author')
-  
-  author = ma.Nested(AuthorSchema)
-
-  links = ma.Hyperlinks({
-    'self': {
-      'href': ma.URLFor('book', id='<id>'),
-      'title': 'book_detail'
-    },
-    'collection': ma.URLFor('book'),
-  })
-
-# If we want to reference the hyper link instead of nest the model
-# class BookSchema(ma.ModelSchema):
+# class BookSchema(ma.TableSchema):
 #   class Meta:
-#     model = Book
+#     table = Book.__table__
 #     fields = ('id', 'title', 'author')
   
-#   author = ma.HyperlinkRelated("one_author")
-#   # author = ma.Nested(AuthorSchema)
+#   author = ma.Nested(AuthorSchema)
 
 #   links = ma.Hyperlinks({
 #     'self': {
@@ -86,19 +90,51 @@ class BookSchema(ma.TableSchema):
 #     'collection': ma.URLFor('book'),
 #   })
 
+# If we want to reference the hyper link instead of nest the model
+class BookSchema(ma.ModelSchema):
+  class Meta:
+    model = Book
+    fields = ('id', 'title', 'author', 'tags')
+  
+  author = ma.HyperlinkRelated("one_author")
+  tags = ma.List(ma.Nested(TagSchema))
+
+  links = ma.Hyperlinks({
+    'self': {
+      'href': ma.URLFor('book', id='<id>'),
+      'title': 'book_detail'
+    },
+    'collection': ma.URLFor('book'),
+  })
+
 user_schema = UserSchema()
 users_schema = UserSchema(many=True)
 author_schema = AuthorSchema()
 authors_schema = AuthorSchema(many=True)
 book_schema = BookSchema()
 books_schema = BookSchema(many=True)
+tag_schema = TagSchema()
+tags_schema = TagSchema(many=True)
 
 # --------- Sum Seed data --------- #
-# author = Author(name="Chuck Paluhniuk")
+author = Author.query.filter_by(name="Chuck Paluhniuk").one()
 # author_schema = AuthorSchema()
-# book = Book(title="Fight Club", author=author)
+book = Book(title="Fight Club", author=author)
 # db.session.add(author)
-# db.session.add(book)
-# db.session.commit()
+db.session.add(book)
+jrrt = Author.query.filter_by(name="J.R.R. Tolkien").one()
+jrrt_books = [
+  Book(title="The Hobbit", author=jrrt),
+  Book(title="The Lord of the Rings", author=jrrt),
+  Book(title="The Silmarillion", author=jrrt),
+]
+db.session.add_all(jrrt_books)
+db.session.commit()
+tag = Tag(tag="fantasy")
+lotr = db.session.query(Book).filter_by(author_id=2).all()
+for book in lotr:
+  book.tags.append(tag)
+lotr.tags.append(tag)
+db.session.commit()
 
 db.create_all()
